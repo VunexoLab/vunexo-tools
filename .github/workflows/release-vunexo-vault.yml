@@ -1,0 +1,85 @@
+name: Release (Vunexo Vault)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "vault-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - platform: windows-latest
+            asset_name: vunexo-windows-x86_64.zip
+          - platform: macos-latest
+            asset_name: vunexo-macos-aarch64.tar.gz
+          - platform: ubuntu-latest
+            asset_name: vunexo-linux-x86_64.tar.gz
+    defaults:
+      run:
+        working-directory: apps/vunexo-vault
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/vunexo-vault
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Set release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "disclaimer=" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "tag=vault-v0.0.0-manual${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "disclaimer=This is a development build, not an audited release." >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          cd target/release
+          7z a "../../${{ matrix.asset_name }}" vunexo.exe
+
+      - name: Package (macOS/Linux)
+        if: matrix.platform != 'windows-latest'
+        shell: bash
+        run: |
+          cd target/release
+          tar -czf "../../${{ matrix.asset_name }}" vunexo
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: "Vunexo Vault ${{ steps.meta.outputs.tag }}"
+          body: |
+            Built automatically by CI from commit ${{ github.sha }}.
+
+            Download the archive for your platform below and put the `vunexo` binary on your `PATH`:
+            - Windows: `vunexo-windows-x86_64.zip`
+            - macOS (Apple Silicon): `vunexo-macos-aarch64.tar.gz`
+            - Linux: `vunexo-linux-x86_64.tar.gz`
+
+            ${{ steps.meta.outputs.disclaimer }}
+          draft: false
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          files: apps/vunexo-vault/${{ matrix.asset_name }}

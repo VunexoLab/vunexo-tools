@@ -1,0 +1,33 @@
+[package]
+name = "vunexo-vault"
+version = "0.1.0"
+description = "Vunexo Vault — the simplest open-source secret manager for local development"
+license = "MIT"
+edition = "2021"
+rust-version = "1.88"
+
+[[bin]]
+name = "vunexo"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+age = "0.11"
+secrecy = { version = "0.10", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+regex = "1"
+thiserror = "1"
+rpassword = "7"
+ignore = "0.4"
+zeroize = "1"
+owo-colors = { version = "4", features = ["supports-colors"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+strip = true

@@ -18,6 +18,11 @@ apps/*/src-tauri/gen/
 *.sqlite
 *.sqlite3
 
+# A vault created while manually testing the vunexo-vault CLI itself from
+# inside its own source tree (its real target is a *user's* project, never
+# this repo) — stray debris here has happened by accident before.
+apps/vunexo-vault/.vunexo/
+
 # Editors / OS
 .DS_Store
 .vscode/*

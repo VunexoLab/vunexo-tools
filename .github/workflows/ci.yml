@@ -159,3 +159,36 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets --quiet
+
+  vault:
+    name: Vunexo Vault (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: apps/vunexo-vault
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/vunexo-vault
+
+      - name: Build
+        run: cargo build
+
+      - name: Test
+        run: cargo test --quiet
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --quiet

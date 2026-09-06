@@ -4,9 +4,9 @@
 
 **Standing instruction (2026-08-30): update this file at the end of every session that changes code**, and write/append that day's `YYYY-MM-DD.md` with what happened. Don't let this file grow into a log — if you're tempted to append here, that content belongs in today's dated file instead. See `feedback_progress_log` in the agent's own memory for the full instruction.
 
-Last updated: 2026-09-05 (Expense Manager section; a separate UI/UX redesign session — see this date's edits for both projects, which ran independently the same day).
+Last updated: 2026-09-06 (Vunexo Vault added — Project #3, spec through implementation in one session).
 
-This repo now holds two independent products — **Vunexo Billing** (`apps/vunexo-billing/`) and **Vunexo Expense Manager** (`apps/expense-manager/`), added 2026-09-05. They share no data and no runtime coupling; each has its own SQLite DB and business profile. Sections below are per-project.
+This repo now holds three independent products — **Vunexo Billing** (`apps/vunexo-billing/`), **Vunexo Expense Manager** (`apps/expense-manager/`, added 2026-09-05), and **Vunexo Vault** (`apps/vunexo-vault/`, added 2026-09-06). Billing and Expense Manager are both Tauri desktop GUI apps for small-business owners and share no data or runtime coupling with each other. Vault is a different kind of product entirely — a developer-facing CLI tool, the first plain Rust binary crate in this repo (no Tauri, no GUI) — and shares no data or runtime with either sibling. Sections below are per-project.
 
 ---
 
@@ -222,9 +222,72 @@ pnpm typecheck && pnpm lint && pnpm build
 
 ---
 
+# Vunexo Vault
+
+Plain Rust binary crate, `apps/vunexo-vault/` — no Tauri, no GUI, the first CLI-only project in this monorepo. Binary name `vunexo`. Version `0.1.0` — not yet released, not yet run on real Windows/Linux hardware (smoke-tested on macOS this session, see below).
+
+**How this fits with the other `.ai`/`docs` files**: `.ai/product-vunexo-vault.md` is the locked V1 spec (status: locked, round 1) — positioning ("the simplest open-source secret manager for local development"), the locked command surface, and four hard boundaries (no network/accounts/server/team-vault in V1; scanning is a heuristic, not a guarantee; no custom password-based cryptography — `age`'s own mechanism only; plaintext secrets never touch disk except the one designed exception, `secrets run`'s child-process environment). `docs/vunexo-vault/{user-flows,storage-schema,application-architecture,cli-ux,crypto-and-scanning-engine}.md` are Rounds 2–6, all locked, written and implemented in one session (2026-09-06). **Round 6 (`crypto-and-scanning-engine.md`) was deliberately treated as a security-design gate** — implementation did not begin until it was fully pinned, per the user's own explicit instruction during Round 1 review.
+
+## Current state
+
+| Command | Status | Tests |
+|---|---|---|
+| `vunexo init` | ✅ refuses if `.vunexo/` already exists | ✅ |
+| `secrets set/get/list/remove` | ✅ `list` prints key names only, never values | ✅ (incl. wrong-passphrase, not-found) |
+| `env list/use` | ✅ `use` on a new name defers vault-file creation to the first `secrets set` (see deviation below) | ✅ |
+| `secrets run -- <command>` | ✅ injects the active environment's secrets into the child process's env only — no `.env` file ever written | ✅ (asserted via a real spawned child process) |
+| `secrets scan [--staged] [PATH]` | ✅ pattern rules (AWS/GitHub/Stripe/PEM/JWT/generic assignment) + Shannon-entropy catch-all; `.age` files excluded from scanning (see deviation below) | ✅ all locked Round 6 test vectors pass, both unit- and integration-level |
+| `hooks install/uninstall` | ✅ marker-delimited block in `.git/hooks/pre-commit`, never mutates a foreign hook, `--git-path hooks` (worktree-safe) | ✅ incl. byte-for-byte preservation of a pre-existing unrelated hook |
+
+Backend: **52 tests passing** (36 unit + 16 integration, real `age` encryption/decryption in temp dirs, no mocked crypto), `cargo fmt`/`clippy` clean, zero warnings. Verified independently (not just trusting the implementing agent's own report): re-ran the full `build && test && fmt --check && clippy` sequence myself, and read `infrastructure/age_vault_store.rs` and `infrastructure/hook_installer.rs` in full to confirm the crypto path uses only `age::scrypt::Recipient`/`Identity` (no Vunexo-chosen KDF/salt/work-factor anywhere) and the hook logic matches the locked "never clobber a foreign hook" behavior.
+
+**Manual end-to-end smoke test, run this session** (a scratch git repo, real binary, real `age` files — not a disclosed gap the way the two Tauri apps' "not manually clicked through" gap is, since a CLI is fully scriptable): `init` → `secrets set/get/list` → `secrets run` (confirmed the child process actually saw the injected value, confirmed no `.env` file was ever created) → wrong passphrase (clean `error: incorrect passphrase`, exit `2`) → planted a fake AWS-shaped secret and ran `secrets scan` (caught it, exit `4`) → `hooks install` then a real `git commit` containing the planted secret (**genuinely blocked**, exit `1`) → removed the secret, committed again (**genuinely succeeded**) → `hooks uninstall` (hook file cleanly removed). Also confirmed directly: `.vunexo/config.toml` contains zero secret material (just format version/environment list/active environment) and `.vunexo/vault/development.age` is real `age` ciphertext with the secret value not present anywhere in the file (`grep` came back empty).
+
+## Deviations from the locked docs (disclosed by the implementing agent, spot-checked and accepted)
+
+1. `env use` on a brand-new name never touches `VaultStore` or prompts a passphrase — creation of the actual `.age` file is deferred to the first `secrets set` against that environment. Resolves a real tension in `user-flows.md` §2 (encrypting an empty vault needs a passphrase from somewhere, but the flow also says no prompt on `env use` itself).
+2. Wrong passphrase and a corrupted vault file both surface the same generic `error: incorrect passphrase` — `cli-ux.md` explicitly calls for this (avoids leaking which failure occurred); a genuine I/O error (permissions, disk error) still gets its own distinct message.
+3. `.age` files are excluded from `secrets scan` — otherwise the vault's own ciphertext would flag itself on every scan, which would make `hooks install` unusable (every commit touching `.vunexo/` would be blocked).
+4. `hooks install` only ever creates fresh, no-ops (already installed), or refuses (foreign hook present) — never appends onto a third-party hook, reconciling an apparent contradiction in `user-flows.md` §6.
+5. Minor: hand-rolled RFC 3339 timestamp instead of pulling in `chrono`/`time`; entropy threshold fixed empirically at 4.3 bits/char against the locked test vectors; case-insensitive keyword matching in the generic-assignment scan rule.
+
+## Known gaps (disclosed, not oversights)
+
+- Not yet run on real Windows/Linux hardware — only built/tested on macOS this session (CI, once pushed, will cover all three via `.github/workflows/ci.yml`'s new `vault` job).
+- No installer/release has ever been built; `release-vunexo-vault.yml` exists but has never been triggered.
+- No hardware-backed key storage (OS keychain/TPM) — passphrase-only, by design for V1 (`crypto-and-scanning-engine.md` §4).
+- Memory zeroization is best-effort (Rust ownership + `zeroize`/`secrecy` on the paths this code controls), not a guarantee against a privileged attacker reading raw process memory — stated precisely this way in the locked spec on purpose, see `product-vunexo-vault.md`'s hard boundary #4.
+
+## Release readiness
+
+- `.github/workflows/ci.yml` has a new `vault` job (cross-platform matrix, `cargo build/test/fmt/clippy`, added 2026-09-06 alongside — not replacing — the existing Billing/Expense Manager jobs). Never yet run (nothing pushed).
+- `.github/workflows/release-vunexo-vault.yml` exists (tag prefix `vault-v*`, `workflow_dispatch`) — a plain-Rust build+package+`softprops/action-gh-release` workflow, not `tauri-action` (Vault has no Tauri bundle). Never triggered.
+- Root `README.md` updated to list Vault as Project #3.
+- Nothing has been committed, pushed, tagged, or released yet — this session built, designed, and verified locally only.
+
+## History (agreed order)
+
+1. ~~Project started: spec through implementation, all in one session~~ — done 2026-09-06 (session 1). Round 1 (product spec) went through three rounds of user review/correction before locking — see `2026-09-06.md` for the exact wording changes (the `age`-identity boundary, the locked command surface/pillars/tagline, the plaintext-never-persisted invariant). Rounds 2–6 (user flows, storage schema, application architecture, CLI UX, crypto & scanning engine) written directly; Round 7 (implementation) delegated to a background agent against all five locked docs; Round 8 (testing) done as part of the same implementation pass, all Round 6 test vectors passing; Round 9 (release readiness) done directly (CI job, release workflow, README, root README).
+
+## Next up
+
+- Decide when to commit/push this work.
+- Decide when (if) to actually run `release-vunexo-vault.yml` and cut a real build; confirm Windows/Linux behavior once CI runs for the first time.
+- Consider whether a `--json` output mode, an OS-keychain-backed passphrase option, or CI/CD integrations are worth a genuine V2 — all deliberately out of V1 scope per the locked spec's guardrail against scope creep toward a team/cloud platform.
+
+## Verification commands
+
+```bash
+# from apps/vunexo-vault/
+cargo build && cargo test --quiet && cargo fmt --check && cargo clippy --all-targets --quiet
+```
+
+---
+
 ## Daily files in this folder
 
 - `2026-08-28.md` — Rounds 1–6 locked; Business/Customers/Products CRUD + calculation engine implemented.
 - `2026-08-29.md` — Invoices vertical slice (draft/issue/cancel/duplicate/list).
 - `2026-08-30.md` — thirteen sessions. Session 1: Payments, Dashboard, Settings, Tax Rates, EditIssuedInvoice, UX audit, currency/country support; the progress-tracking system itself was created. Session 2: PDF generation end to end. Session 3: backup/restore + CSV/JSON export (Settings → Data). Session 4: made `business.logo_path` app-managed so it survives a restore onto a different machine. Session 5: audited PDF generation against real invoice data — passed, no defects. Session 6: audited backup/restore against a real-data-shaped copy — passed, no defects. Session 7: fixed the two actionable known gaps (line-level discount UI, Dashboard Overdue click-through). Session 8: release readiness — license, CI, third-party notices, app README. Session 9: pushed to GitHub, fixed what CI's first real run caught (a cross-OS logo-path bug, plus a CI config bug), then built and published the first real installers via a new release workflow. Session 10: added the real Vunexo Billing logo — app icons, favicon, both READMEs, a public-facing Download section. Session 11: macOS build confirmed working on real hardware; cut and published the real `app-v1.0.0` release, fixing the release workflow so real tags publish as full (non-prerelease) releases. Session 12: all six V2 design rounds locked (product scope → user flows → schema → application architecture → UI/UX → calculation engine); Round 7 implementation done through Quotes lifecycle + `ConvertQuoteToInvoice`, `main.rs` wiring, 7C statement/report/reminder backend, and the Quotes frontend. Session 13: finished Round 7 — Statement tab, Reports screens, Payment Reminder modal, plus the small generic `write_export_file` backend addition their CSV/JSON export needed.
 - `2026-09-05.md` — Multiple independent threads across both projects. Expense Manager (Project #2) started and built end to end in session 1: all nine rounds (spec → user flows → schema → architecture → UI/UX → calculation engine → implementation → testing → release readiness), 40 backend tests passing, `typecheck`/`lint`/`build` clean. Expense Manager session 2 (separate request): full light/dark theme + professional minimal redesign, token-based design system, every screen restyled, still not yet manually clicked through/committed/released. Separately, Billing sessions 14–15: V2 Round 7 frontend manually verified live (session 14); multi-country tax (`VAT_STANDARD`) wired end to end, a fresh feature audit (4 bugs fixed), and Billing's own UI/UX redesign (paired-utility-class approach) all in session 15 — see the Billing section above.
+- `2026-09-06.md` — Vunexo Vault (Project #3) pitched, scoped, designed, and built end to end in one session: a CLI secrets manager + git-hook leak scanner, the first plain-Rust (non-Tauri) project in the monorepo. Round 1 locked across three user-review passes; Rounds 2–6 written directly; Round 7 implementation delegated to a background agent; 52 tests passing, a real manual smoke test (including an actual git commit genuinely blocked and then genuinely succeeding) run against the compiled binary.
