@@ -13,3 +13,12 @@
 pub mod application;
 pub mod domain;
 pub mod infrastructure;
+
+// Re-exported so a downstream consumer (the GUI, `apps/vunexo-vault-gui`) can
+// name `secrecy::SecretString` — the type `application::ports::VaultStore`
+// and friends already use in their public signatures — without adding
+// `secrecy` as a second, independent direct dependency. This is a pure
+// visibility change (one `pub use`), not a new crypto surface: it does not
+// add, wrap, or alter any cryptographic behavior, it only lets the one
+// existing type be named from outside this crate.
+pub use secrecy;

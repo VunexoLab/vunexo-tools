@@ -119,6 +119,16 @@ impl HookInstallerPort for HookInstaller {
         Err(VaultError::HookAlreadyExists)
     }
 
+    fn is_installed(&self) -> Result<bool, VaultError> {
+        let path = self.pre_commit_path()?;
+        if !path.exists() {
+            return Ok(false);
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|e| VaultError::Io(format!("failed to read {}: {e}", path.display())))?;
+        Ok(content.contains(MARKER_START))
+    }
+
     fn uninstall(&self) -> Result<(), VaultError> {
         let path = self.pre_commit_path()?;
         if !path.exists() {
@@ -149,5 +159,52 @@ impl HookInstallerPort for HookInstaller {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn init_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let status = Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .current_dir(dir.path())
+            .status()
+            .expect("failed to run git init");
+        assert!(status.success());
+        dir
+    }
+
+    /// Unit coverage for `is_installed` — the read-only query added for the
+    /// GUI's Hooks screen (`docs/vunexo-vault/gui-ux.md` §6), which the CLI
+    /// itself never calls. `install`/`uninstall`'s own behavior is already
+    /// covered end-to-end against the real binary in
+    /// `tests/cli_integration.rs`.
+    #[test]
+    fn is_installed_reflects_install_and_uninstall() {
+        let dir = init_repo();
+        let installer = HookInstaller::new(dir.path());
+
+        assert!(!installer.is_installed().unwrap());
+
+        installer.install().unwrap();
+        assert!(installer.is_installed().unwrap());
+
+        installer.uninstall().unwrap();
+        assert!(!installer.is_installed().unwrap());
+    }
+
+    #[test]
+    fn is_installed_is_false_for_a_foreign_hook() {
+        let dir = init_repo();
+        let hooks_dir = dir.path().join(".git/hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        fs::write(hooks_dir.join("pre-commit"), "#!/bin/sh\necho foreign\n").unwrap();
+
+        let installer = HookInstaller::new(dir.path());
+        assert!(!installer.is_installed().unwrap());
     }
 }

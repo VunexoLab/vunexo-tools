@@ -8,7 +8,9 @@ See [`.ai/product-vunexo-vault.md`](../../.ai/product-vunexo-vault.md) for the l
 
 ## Status
 
-Design locked (Rounds 1–6: product spec, user flows, storage schema, application architecture, CLI UX, crypto & scanning engine — see [`docs/vunexo-vault/`](../../docs/vunexo-vault/)). Implementation in progress — see [`.ai/progress/CURRENT.md`](../../.ai/progress/CURRENT.md) for the exact as-built state.
+V1 implemented and tested (54 backend tests, `cargo fmt`/`clippy` clean) and manually smoke-tested end to end. Not yet released — no installer has been built or published. See [`.ai/progress/CURRENT.md`](../../.ai/progress/CURRENT.md) for the exact as-built state.
+
+An optional desktop companion, [Vunexo Vault GUI](../vunexo-vault-gui/), also exists — a second interface to this exact same crate for people who'd rather click than type. This CLI remains the primary interface either way.
 
 ## Features (V1 scope)
 
@@ -49,7 +51,7 @@ CI (`.github/workflows/ci.yml`) runs the same checks on every push/PR, across Ub
 
 ## Architecture
 
-Plain Rust binary crate (no Tauri, no GUI) — the first of its kind in this monorepo, layered `cli → application → domain → infrastructure`. Encryption via the [`age`](https://github.com/str4d/rage) crate's own passphrase mechanism — no custom KDF or cipher code. See [`docs/vunexo-vault/`](../../docs/vunexo-vault/) for the full locked design, especially [`crypto-and-scanning-engine.md`](../../docs/vunexo-vault/crypto-and-scanning-engine.md), the security-design gate that had to be locked before implementation began.
+Plain Rust binary crate — the first of its kind in this monorepo, layered `cli → application → domain → infrastructure`. Encryption via the [`age`](https://github.com/str4d/rage) crate's own passphrase mechanism — no custom KDF or cipher code. `domain`/`application`/`infrastructure` are also exposed as a `[lib]` target so [Vunexo Vault GUI](../vunexo-vault-gui/) can depend on the identical crypto/domain code rather than a second implementation. See [`docs/vunexo-vault/`](../../docs/vunexo-vault/) for the full locked design, especially [`crypto-and-scanning-engine.md`](../../docs/vunexo-vault/crypto-and-scanning-engine.md), the security-design gate that had to be locked before implementation began.
 
 ## License
 

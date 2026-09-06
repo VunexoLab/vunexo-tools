@@ -1,0 +1,33 @@
+[package]
+name = "vunexo-vault-gui"
+version = "0.1.0"
+description = "Vunexo Vault — optional desktop companion GUI for the CLI secrets manager"
+license = "MIT"
+edition = "2021"
+rust-version = "1.88"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The one and only secret-handling dependency: a plain path dependency on the
+# CLI's own shared library crate. No `age`, `secrecy`, `regex`, `zeroize`, or
+# `ignore` is declared here — every crypto/scanning/vault-format type this
+# crate touches is named through `vunexo_vault::{domain, application,
+# infrastructure}` (or `vunexo_vault::secrecy`, re-exported for exactly this
+# purpose), never redeclared. See `.ai/product-vunexo-vault.md`'s 2026-09-06
+# GUI amendment.
+vunexo-vault = { path = "../../vunexo-vault" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+strip = true
